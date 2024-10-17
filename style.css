@@ -8,3 +8,12 @@ body {
   height: 100vh;
   display: block;
 }
+
+#healthCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 100vw;
+  left: 100vh;
+  pointer-events: none"
+}
