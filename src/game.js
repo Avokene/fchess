@@ -1,4 +1,5 @@
 import { Soldier } from "./objects/soldier.js"; // Soldier 클래스를 가져옴
+import { RangedSoldier } from "./objects/rangedsoldier.js"; // RangedSoldier 클래스를 가져옴
 
 let gl;
 let program;
@@ -183,18 +184,23 @@ function initSoldiers(numSoldiers = 3) {
   }
 }
 
-async function updateSoldiers(deltaTime) {
+function updateSoldiers(deltaTime) {
+  const currentTime = performance.now() / 1000; // 초 단위로 현재 시간 계산
+
   soldiers.forEach((soldier) => {
     const closestEnemy = findClosestEnemy(soldier);
     soldier.target = closestEnemy;
-    soldier.moveToTarget(deltaTime);
 
+    // 타겟이 범위 내에 있으면 공격 시도
     if (closestEnemy && isInRange(soldier, closestEnemy)) {
-      soldier.takeDamage(10, closestEnemy);
-      closestEnemy.takeDamage(10, soldier);
+      soldier.attack(closestEnemy, currentTime);
     }
+
+    // 타겟을 향해 이동
+    soldier.moveToTarget(deltaTime);
   });
 
+  // 죽은 병사 제거
   soldiers = soldiers.filter((s) => s.isAlive());
 }
 
