@@ -4,11 +4,13 @@ export class Soldier {
     this.y = y;
     this.speed = speed;
     this.team = team;
+    this.maxHealth = 100;
     this.health = 100;
     this.size = 0.05;
     this.target = null;
     this.knockbackDistance = 0;
     this.knockbackDirection = { x: 0, y: 0 };
+    this.range = 0.15; // 사정거리 (0.15 = 15% 화면 크기)
 
     this.attackInterval = attackInterval; // 공격 속도 (초 단위)
     this.lastAttackTime = 0; // 마지막 공격 시점
@@ -24,7 +26,7 @@ export class Soldier {
     if (this.canAttack(currentTime)) {
       target.takeDamage(10, this); // 10의 피해를 줌 (넉백 포함)
       this.lastAttackTime = currentTime; // 공격 시점 갱신
-      console.log(`Soldier from team ${this.team} attacked!`);
+      //console.log(`Soldier from team ${this.team} attacked!`);
     }
   }
 
