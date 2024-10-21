@@ -1,4 +1,5 @@
 import { Soldier } from "./objects/soldier.js"; // Soldier 클래스를 가져옴
+import { RangedSoldier } from "./objects/rangedsoldier.js"; // RangedSoldier 클래스를 가져옴
 
 let gl;
 let program;
@@ -36,11 +37,11 @@ function initWebGL() {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   const vertexShaderSource = `
-        attribute vec4 a_position;
+        attribute vec2 a_position;
         uniform mat4 u_projection;
 
-        void main() {
-            gl_Position = u_projection * a_position;
+        void main() {   
+            gl_Position = u_projection * vec4(a_position, 0, 1);
         }
     `;
 
@@ -79,6 +80,7 @@ function initWebGL() {
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     setProjectionMatrix();
+    drawScene();
   });
 }
 
@@ -173,6 +175,14 @@ function initSoldiers(numSoldiers = 3) {
     );
     soldiers.push(redSoldier);
 
+    const redRagedSoldier = new RangedSoldier(
+      -0.9 + i * 0.3,
+      Math.random() * 1 - 0.5,
+      0.3,
+      "red"
+    );
+    soldiers.push(redRagedSoldier);
+
     const blueSoldier = new Soldier(
       0.9 - i * 0.3,
       Math.random() * 1 - 0.5,
@@ -180,21 +190,37 @@ function initSoldiers(numSoldiers = 3) {
       "blue"
     );
     soldiers.push(blueSoldier);
+
+    const blueRangedSoldier = new RangedSoldier(
+      0.9 - i * 0.3,
+      Math.random() * 1 - 0.5,
+      0.3,
+      "blue"
+    );
+    soldiers.push(blueRangedSoldier);
   }
 }
 
-async function updateSoldiers(deltaTime) {
+function updateSoldiers(deltaTime) {
+  const currentTime = performance.now() / 1000; // 초 단위로 현재 시간 계산
+
   soldiers.forEach((soldier) => {
     const closestEnemy = findClosestEnemy(soldier);
     soldier.target = closestEnemy;
-    soldier.moveToTarget(deltaTime);
 
+    // 타겟이 범위 내에 있으면 공격 시도
     if (closestEnemy && isInRange(soldier, closestEnemy)) {
-      soldier.takeDamage(10, closestEnemy);
-      closestEnemy.takeDamage(10, soldier);
+      soldier.attack(closestEnemy, currentTime);
+      if (soldier instanceof RangedSoldier) {
+        soldier.updateProjectiles(1 / 60);
+      }
     }
+
+    // 타겟을 향해 이동
+    soldier.moveToTarget(deltaTime);
   });
 
+  // 죽은 병사 제거
   soldiers = soldiers.filter((s) => s.isAlive());
 }
 
@@ -202,7 +228,7 @@ function isInRange(soldier1, soldier2) {
   const dx = soldier1.x - soldier2.x;
   const dy = soldier1.y - soldier2.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
-  return distance < 0.15;
+  return distance < soldier1.range;
 }
 
 function findClosestEnemy(soldier) {
@@ -231,7 +257,7 @@ function drawHealthBar(soldier) {
   const barHeight = 8; // 체력바 높이
   const halfbarWidth = barWidth / 2; // 체력바 너비의 절반
 
-  const healthRatio = Math.max(soldier.health / 100, 0); // 체력 비율
+  const healthRatio = Math.max(soldier.health / soldier.maxHealth, 0); // 체력 비율
 
   // Aspect Ratio 계산
   const aspectRatio = gl.canvas.width / gl.canvas.height;
@@ -239,9 +265,6 @@ function drawHealthBar(soldier) {
   // WebGL 좌표 -> Canvas 좌표 변환 (X 좌표에 Aspect Ratio 적용)
   const x = ((soldier.x / aspectRatio + 1) / 2) * healthCanvas.width;
   const y = (1 - (soldier.y + 1) / 2) * healthCanvas.height - 30; // Y 좌표 및 오프셋
-
-  // 디버깅용 로그 출력
-  console.log(`Canvas X: ${x}, Aspect Ratio: ${healthCanvas.width}`);
 
   // 체력바 배경 (회색)
   ctx.fillStyle = "gray";
@@ -252,26 +275,26 @@ function drawHealthBar(soldier) {
   ctx.fillRect(x - halfbarWidth, y, barWidth * healthRatio, barHeight);
 }
 
-function drawScene() {
-  gl.clear(gl.COLOR_BUFFER_BIT);
+function createCircleVertices(centerX, centerY, radius, segments = 32) {
+  const vertices = [];
+  const angleStep = (Math.PI * 2) / segments;
 
-  const ctx = healthCanvas.getContext("2d");
-  ctx.clearRect(0, 0, healthCanvas.width, healthCanvas.height); // 이전 프레임의 체력바 지우기
+  for (let i = 0; i <= segments; i++) {
+    const angle = i * angleStep;
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    vertices.push(x, y);
+  }
 
-  soldiers.forEach((soldier) => {
-    const vertices = new Float32Array([
-      soldier.x - soldier.size,
-      soldier.y - soldier.size,
-      soldier.x + soldier.size,
-      soldier.y - soldier.size,
-      soldier.x + soldier.size,
-      soldier.y + soldier.size,
-      soldier.x - soldier.size,
-      soldier.y + soldier.size,
-    ]);
+  return new Float32Array(vertices);
+}
 
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+function drawProjectiles() {
+  this.projectiles.forEach((p) => {
+    const vertices = createCircleVertices(p.x, p.y, 0.015); // 반지름 0.015
+
+    const vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
     const positionLocation = gl.getAttribLocation(program, "a_position");
@@ -279,14 +302,55 @@ function drawScene() {
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
     const colorLocation = gl.getUniformLocation(program, "u_color");
-    gl.uniform4fv(colorLocation, new Float32Array(soldier.getColor()));
+    gl.uniform4fv(colorLocation, new Float32Array([1.0, 1.0, 0.0, 1.0])); // 노란색
 
-    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, vertices.length / 2); // 원 그리기
+  });
+}
+
+function drawSoldier(soldier) {
+  const vertices = new Float32Array([
+    soldier.x - soldier.size,
+    soldier.y - soldier.size,
+    soldier.x + soldier.size,
+    soldier.y - soldier.size,
+    soldier.x + soldier.size,
+    soldier.y + soldier.size,
+    soldier.x - soldier.size,
+    soldier.y + soldier.size,
+  ]);
+
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+  const positionLocation = gl.getAttribLocation(program, "a_position");
+  gl.enableVertexAttribArray(positionLocation);
+  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+  const colorLocation = gl.getUniformLocation(program, "u_color");
+  gl.uniform4fv(colorLocation, new Float32Array(soldier.getColor()));
+
+  gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+}
+
+function drawScene() {
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  const ctx = healthCanvas.getContext("2d");
+  ctx.clearRect(0, 0, healthCanvas.width, healthCanvas.height); // 이전 프레임의 체력바 지우기
+
+  soldiers.forEach((soldier) => {
+    drawSoldier(soldier);
+    if (soldier instanceof RangedSoldier) {
+      soldier.updateProjectiles(1 / 60);
+      drawProjectiles.call(soldier);
+    }
     drawHealthBar(soldier);
   });
 }
 
-async function gameLoop() {
+function gameLoop() {
   const now = performance.now();
   const deltaTime = now - lastTime;
   lastTime = now;
@@ -294,7 +358,7 @@ async function gameLoop() {
   frameTime += deltaTime;
 
   if (frameTime >= updateInterval) {
-    await updateSoldiers(frameTime / 1000);
+    updateSoldiers(frameTime / 1000);
     frameTime = 0;
   }
 
